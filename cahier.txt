@@ -1,0 +1,145 @@
+Ah parfait ! Là, ton projet devient vraiment stratégique et intéressant 😎 : tu veux créer 4 traders virtuels avec 3 IA différentes :
+
+GROK seul
+
+DeepSeek seul
+
+OpenAI seul
+
+Collaboration des 3 IA (vote/pondération)
+
+Chaque trader pourra prendre ses décisions en parallèle, et tu pourras comparer leurs performances dans ton dashboard.
+
+Je te propose un cahier des charges ajusté pour ce setup :
+
+📘 CAHIER DES CHARGES – Multi-IA en concurrence et collaboration
+1. 🎯 Objectif
+
+Comparer les performances de 3 IA en mode individuel versus mode collaboratif.
+
+Afficher les résultats dans un dashboard en temps réel.
+
+Bot capable d’exécuter des trades via Alpaca, paper trading puis réel.
+
+2. 🧩 Architecture
+                ┌───────────────┐
+                │  Actualités   │
+                └──────┬────────┘
+                       │
+    ┌────────────┐  ┌─────────────┐  ┌─────────────┐
+    │ GROK (solo)│  │ DeepSeek    │  │ OpenAI      │
+    └─────┬──────┘  └─────┬───────┘  └─────┬───────┘
+          │               │                │
+          └─────► Solo Signals ◄───────────┘
+                       │
+               ┌───────▼────────┐
+               │ Collaboration  │
+               │ (vote / pond.) │
+               └───────┬────────┘
+                       │
+               ┌───────▼────────┐
+               │ Alpaca API      │
+               └───────┬────────┘
+                       │
+               ┌───────▼────────┐
+               │ Dashboard Web   │
+               │ (4 traders)     │
+               └─────────────────┘
+
+3. 🧑‍💻 Pré-requis techniques
+
+Python ≥ 3.10
+
+Librairies :
+
+Alpaca : alpaca-trade-api
+
+Dashboard : streamlit ou dash
+
+IA : openai + API pour GROK et DeepSeek
+
+Data : pandas, numpy
+
+Compte Alpaca paper trading + clés API
+
+Serveur ou PC pour exécution 24/7
+
+4. 🔌 Fonctionnement des 4 traders
+Trader	Mode	Décision
+GROK	Solo	Analyse et trade indépendant
+DeepSeek	Solo	Analyse et trade indépendant
+OpenAI	Solo	Analyse et trade indépendant
+Collaboratif	Multi	Vote ou pondération entre les 3 IA
+4.1 Mode solo
+
+Chaque IA prend ses propres décisions sur les mêmes actions
+
+Chaque IA a son capital indépendant (paper trading)
+
+Permet de mesurer les performances individuelles
+
+4.2 Mode collaboratif
+
+Les 3 IA fournissent leurs signaux
+
+Le système combine via :
+
+Vote majoritaire
+
+Ou pondération basée sur performance historique
+
+Un seul trade est passé pour le compte collaboratif
+
+5. 📊 Dashboard
+
+4 sections (1 par trader) :
+
+Capital
+
+Trades passés (date, symbole, qty, IA)
+
+Gains/pertes
+
+Alertes (stop-loss, news importantes)
+
+Comparatif performances solo vs collaboratif
+
+Graphiques interactifs : Plotly ou Streamlit charts
+
+6. 🔄 Boucle principale
+
+Récupérer données marché et news
+
+Chaque IA génère un signal (solo)
+
+Calcul du signal collaboratif
+
+Vérification du risque
+
+Passer l’ordre via Alpaca API
+
+Log et mise à jour dashboard
+
+Attendre intervalle défini avant boucle suivante
+
+7. 🛑 Gestion du risque
+
+Max 1–2 % du capital par trade
+
+Stop-loss automatique par trader
+
+Limite du nombre de trades par jour
+
+8. 🔧 Phase de tests
+
+Paper trading obligatoire
+
+Test des 4 traders simultanément
+
+Vérification des performances et du dashboard
+
+9. 🚀 Passage en réel
+
+Après validation des tests paper trading
+
+Activation trading réel pour chaque compte (ou compte multi-trader unique pour collaboratif)
