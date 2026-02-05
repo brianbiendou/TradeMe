@@ -15,7 +15,8 @@ export default function DashboardPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tradingStatus, setTradingStatus] = useState<TradingStatus | null>(null);
   const [marketHours, setMarketHours] = useState<MarketHours | null>(null);
-  const [performanceData, setPerformanceData] = useState<PerformanceData | null>(null);
+  const [performanceData, setPerformanceData] = useState<any>(null);
+  const [benchmarksInfo, setBenchmarksInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,17 +24,27 @@ export default function DashboardPage() {
   // Charger les données
   const fetchData = useCallback(async () => {
     try {
-      const [agentsData, statusData, hoursData, perfData] = await Promise.all([
+      const [agentsData, statusData, hoursData, perfWithBenchmarks] = await Promise.all([
         api.getLeaderboard(),
         api.getTradingStatus(),
         api.getMarketHours(),
-        api.getPerformance(timeFilter),
+        api.getPerformanceWithBenchmarks(timeFilter),
       ]);
       
       setAgents(agentsData);
       setTradingStatus(statusData);
       setMarketHours(hoursData);
-      setPerformanceData(perfData);
+      
+      // Extraire les données de performance avec benchmarks
+      if (perfWithBenchmarks.success) {
+        setPerformanceData({ data: perfWithBenchmarks.data });
+        setBenchmarksInfo(perfWithBenchmarks.benchmarks_info);
+      } else {
+        // Fallback vers l'ancien endpoint
+        const perfData = await api.getPerformance(timeFilter);
+        setPerformanceData(perfData);
+      }
+      
       setError(null);
     } catch (err) {
       setError('Erreur de connexion au backend');
@@ -262,13 +273,26 @@ export default function DashboardPage() {
         {/* Performance Chart - Style TradingView */}
         <div className="xl:col-span-2 rounded-xl shadow-sm overflow-hidden">
           <div className="bg-gray-900 px-6 py-4 flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-white">Performance en temps réel</h2>
+            <div>
+              <h2 className="text-xl font-semibold text-white">Performance en temps réel</h2>
+              {benchmarksInfo && (
+                <div className="flex items-center gap-4 mt-1 text-xs">
+                  <span className="text-blue-400">
+                    S&P 500: {benchmarksInfo.sp500.performance >= 0 ? '+' : ''}{benchmarksInfo.sp500.performance.toFixed(2)}%
+                  </span>
+                  <span className="text-red-400">
+                    Buffett: {benchmarksInfo.berkshire.performance >= 0 ? '+' : ''}{benchmarksInfo.berkshire.performance.toFixed(2)}%
+                  </span>
+                </div>
+              )}
+            </div>
             <TimeFilter value={timeFilter} onChange={setTimeFilter} dark />
           </div>
           {performanceData?.data && (
             <TradingChart 
               performanceData={performanceData.data} 
               height={350}
+              period={timeFilter}
             />
           )}
         </div>

@@ -1,17 +1,34 @@
 """
 Agent de base pour le trading IA.
 Classe abstraite définissant le comportement commun de tous les agents.
+
+AMÉLIORATIONS V2:
+- Mémoire RAG: Les IAs apprennent de leurs erreurs passées
+- Données Smart Money: Dark Pool, Options Flow, Insider Trading
+- Kelly Criterion: Position sizing optimal basé sur les stats
+
+AMÉLIORATIONS V2.2:
+- Indicateurs Techniques: RSI, MACD, Support/Résistance, Volume
+- Calendrier Earnings: Éviter les achats avant earnings
 """
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from enum import Enum
 import json
 
 from ..core.config import settings
 from ..core.llm_client import llm_client
 from ..core.alpaca_client import alpaca_client
+from ..core.memory_service import memory_service
+from ..core.smart_data_service import smart_data_service
+from ..core.kelly_calculator import kelly_calculator
+from ..core.technical_indicators import technical_indicators
+from ..core.earnings_calendar import earnings_calendar
+
+# === V2.3: IMPORT MÉMOIRE AMÉLIORÉE ===
+from ..core.enhanced_memory_service import enhanced_memory_service
 
 logger = logging.getLogger(__name__)
 
@@ -118,8 +135,10 @@ class BaseAgent(ABC):
         Génère le prompt système complet pour l'agent.
         Combine personnalité + règles communes.
         """
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         base_prompt = f"""
 # Tu es {self.name}, un trader IA autonome et INTELLIGENT.
+# DATE ACTUELLE: {current_time}
 
 ## TA PERSONNALITÉ
 {self.personality}
@@ -232,21 +251,88 @@ Tu DOIS répondre avec un JSON valide contenant ta décision et ton raisonnement
         self,
         market_data: Dict[str, Any],
         news: Optional[str] = None,
+        feedback: Optional[str] = None,
+        smart_money_data: Optional[Dict[str, Any]] = None,
+        technical_data: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Analyse le marché et prend une décision.
         
+        AMÉLIORÉ V2:
+        - Intègre la mémoire RAG (apprentissage des erreurs)
+        - Intègre les données Smart Money (Dark Pool, Options, Insiders)
+        - Intègre le Kelly Criterion pour le position sizing
+        
+        AMÉLIORÉ V2.2:
+        - Intègre les indicateurs techniques (RSI, MACD, S/R, Volume)
+        - Vérifie le calendrier earnings avant BUY
+        
         Args:
             market_data: Données de marché actuelles
             news: Actualités optionnelles
+            feedback: Feedback d'une tentative précédente (ex: erreur)
+            smart_money_data: Données alternatives pré-récupérées
+            technical_data: Données techniques pré-calculées (V2.2)
             
         Returns: Décision de trading
         """
         # Effectuer l'autocritique si nécessaire
         await self.autocritique()
         
-        # Construire le contexte
+        # Construire le contexte de base
         context = self._build_market_context(market_data, news)
+        
+        # === V2.3 AMÉLIORATION: MÉMOIRE RAG ENRICHIE (symbole + secteur) ===
+        if hasattr(self, 'db_id') and self.db_id and enhanced_memory_service._initialized:
+            # Récupérer le contexte PRÉ-DÉCISION (stats générales)
+            pre_decision_context = enhanced_memory_service.get_pre_decision_context(
+                agent_id=self.db_id,
+                market_sentiment=market_data.get("sentiment"),
+            )
+            if pre_decision_context:
+                context = pre_decision_context + "\n\n" + context
+                logger.info(f"🧠 {self.name}: Contexte mémoire enrichi ajouté")
+        elif hasattr(self, 'db_id') and self.db_id and memory_service._initialized:
+            # Fallback sur l'ancienne mémoire
+            memory_context = memory_service.format_memory_context_for_agent(
+                agent_id=self.db_id,
+                current_symbol=None,
+                current_sector=None,
+                current_sentiment=market_data.get("sentiment"),
+            )
+            if memory_context:
+                context = memory_context + "\n\n" + context
+                logger.info(f"🧠 {self.name}: Contexte mémoire ajouté")
+        
+        # === AMÉLIORATION 2: DONNÉES SMART MONEY ===
+        if smart_money_data:
+            smart_context = smart_data_service.format_smart_data_for_agent(smart_money_data)
+            if smart_context:
+                context = context + "\n\n" + smart_context
+                logger.info(f"🎯 {self.name}: Données Smart Money ajoutées")
+        
+        # === AMÉLIORATION 3: KELLY CRITERION (position sizing) ===
+        if hasattr(self, 'db_id') and self.db_id and kelly_calculator._initialized:
+            kelly_context = kelly_calculator.format_kelly_for_agent(
+                agent_id=self.db_id,
+                capital=self.current_capital,
+            )
+            if kelly_context:
+                context = context + "\n\n" + kelly_context
+                logger.info(f"💰 {self.name}: Contexte Kelly ajouté")
+        
+        # === AMÉLIORATION 4 (V2.2): INDICATEURS TECHNIQUES ===
+        if technical_data:
+            for symbol, tech_analysis in technical_data.items():
+                if tech_analysis:
+                    tech_context = technical_indicators.format_for_agent(tech_analysis)
+                    if tech_context:
+                        context = context + "\n\n" + tech_context
+            logger.info(f"📊 {self.name}: Indicateurs techniques ajoutés")
+        
+        if feedback:
+            logger.info(f"🔄 {self.name} reçoit un feedback: {feedback}")
+            context = f"⚠️ FEEDBACK / ERREUR PRÉCÉDENTE (Prends-en compte!): {feedback}\n\n" + context
         
         # Demander une décision au LLM
         history_dicts = [t.to_dict() for t in self.history[-5:]]
@@ -259,6 +345,28 @@ Tu DOIS répondre avec un JSON valide contenant ta décision et ton raisonnement
         )
         
         if decision:
+            # === POST-TRAITEMENT: Ajuster le position sizing avec Kelly ===
+            if hasattr(self, 'db_id') and self.db_id and kelly_calculator._initialized:
+                confidence = decision.get("confidence", 50)
+                risk_level = decision.get("risk_level", "MEDIUM")
+                vix = smart_money_data.get("vix", {}).get("vix", 20) if smart_money_data else 20
+                smart_signal = smart_money_data.get("overall_signal", "NEUTRAL") if smart_money_data else "NEUTRAL"
+                
+                kelly_sizing = kelly_calculator.calculate_position_size(
+                    agent_id=self.db_id,
+                    capital=self.current_capital,
+                    confidence=confidence,
+                    risk_level=risk_level,
+                    vix=vix,
+                    smart_money_signal=smart_signal,
+                )
+                
+                # Remplacer la quantité suggérée par le montant Kelly
+                if decision.get("decision") in ["BUY", "SELL"]:
+                    decision["kelly_amount"] = kelly_sizing.recommended_amount
+                    decision["kelly_reasoning"] = kelly_sizing.reasoning
+                    logger.info(f"💰 {self.name}: Kelly recommande ${kelly_sizing.recommended_amount:.2f}")
+            
             logger.info(
                 f"📊 {self.name} décision: {decision.get('decision')} "
                 f"{decision.get('symbol')} (confiance: {decision.get('confidence')}%)"
@@ -278,14 +386,14 @@ Tu DOIS répondre avec un JSON valide contenant ta décision et ton raisonnement
         """
         pass
     
-    async def execute_trade(self, decision: Dict[str, Any]) -> bool:
+    async def execute_trade(self, decision: Dict[str, Any]) -> Tuple[bool, str]:
         """
         Exécute une décision de trading.
         
         Args:
             decision: Dict avec decision, symbol, quantity, etc.
             
-        Returns: True si exécuté, False sinon
+        Returns: (Succès, Raison/Erreur)
         """
         action = decision.get("decision", "HOLD").upper()
         symbol = decision.get("symbol", "")
@@ -296,25 +404,24 @@ Tu DOIS répondre avec un JSON valide contenant ta décision et ton raisonnement
         # HOLD = ne rien faire
         if action == "HOLD" or not symbol or quantity <= 0:
             logger.info(f"⏸️ {self.name} HOLD: {reasoning[:100]}...")
-            return True
+            return True, "Held position or invalid quantity"
         
         # Vérifier le capital disponible pour BUY
         if action == "BUY":
             # Estimer le coût
             market_data = alpaca_client.get_market_data(symbol, "1Day", 1)
             if not market_data:
-                logger.warning(f"❌ Impossible d'obtenir le prix pour {symbol}")
-                return False
+                msg = f"❌ Impossible d'obtenir le prix pour {symbol}"
+                logger.warning(msg)
+                return False, msg
             
             current_price = market_data[-1]["close"]
             total_cost = quantity * current_price + settings.simulated_fee_per_trade
             
             if total_cost > self.current_capital:
-                logger.warning(
-                    f"❌ {self.name} capital insuffisant: "
-                    f"${total_cost:.2f} > ${self.current_capital:.2f}"
-                )
-                return False
+                msg = f"❌ {self.name} capital insuffisant: ${total_cost:.2f} > ${self.current_capital:.2f}"
+                logger.warning(msg)
+                return False, msg
         
         # Exécuter l'ordre via Alpaca
         side = "buy" if action == "BUY" else "sell"
@@ -325,8 +432,9 @@ Tu DOIS répondre avec un JSON valide contenant ta décision et ton raisonnement
         )
         
         if not order:
-            logger.error(f"❌ {self.name} échec ordre {action} {quantity} {symbol}")
-            return False
+            msg = f"❌ {self.name} échec ordre {action} {quantity} {symbol}"
+            logger.error(msg)
+            return False, msg
         
         # Enregistrer le trade
         price = order.get("filled_avg_price", 0) or 0
@@ -351,12 +459,63 @@ Tu DOIS répondre avec un JSON valide contenant ta décision et ton raisonnement
         # Mettre à jour les positions
         self._update_positions(action, symbol, quantity, price)
         
+        # === V2.3 MÉMOIRE RAG ENRICHIE: Créer un souvenir avec symbole + secteur ===
+        if hasattr(self, 'db_id') and self.db_id and enhanced_memory_service._initialized:
+            try:
+                # Récupérer les données techniques si disponibles
+                technical_data = decision.get("technical_data", {})
+                smart_money_data = decision.get("smart_money_data", {})
+                
+                enhanced_memory_service.create_enriched_trade_memory(
+                    agent_id=self.db_id,
+                    trade_id=trade.order_id,
+                    symbol=symbol,
+                    decision=action,
+                    entry_price=price,
+                    quantity=quantity,
+                    reasoning=reasoning,
+                    confidence=confidence,
+                    technical_data=technical_data,
+                    smart_money_data=smart_money_data,
+                )
+                sector = enhanced_memory_service.get_sector_for_symbol(symbol)
+                logger.info(f"🧠 {self.name}: Mémoire enrichie créée pour {action} {symbol} ({sector})")
+            except Exception as e:
+                logger.warning(f"Erreur création mémoire enrichie: {e}")
+        elif hasattr(self, 'db_id') and self.db_id and memory_service._initialized:
+            # Fallback sur l'ancienne méthode
+            try:
+                market_context = {
+                    "sentiment": decision.get("market_sentiment"),
+                    "sector": decision.get("sector"),
+                }
+                smart_data = {
+                    "dark_pool_ratio": decision.get("dark_pool_ratio"),
+                    "options_sentiment": decision.get("options_sentiment"),
+                    "insider_activity": decision.get("insider_activity"),
+                }
+                memory_service.create_trade_memory(
+                    agent_id=self.db_id,
+                    trade_id=trade.order_id,
+                    symbol=symbol,
+                    decision=action,
+                    entry_price=price,
+                    quantity=quantity,
+                    reasoning=reasoning,
+                    confidence=confidence,
+                    market_context=market_context,
+                    smart_money_data=smart_data,
+                )
+                logger.info(f"🧠 {self.name}: Mémoire créée pour {action} {symbol}")
+            except Exception as e:
+                logger.warning(f"Erreur création mémoire: {e}")
+        
         logger.info(
             f"✅ {self.name} exécuté: {action} {quantity} {symbol} @ ${price:.2f} "
             f"(frais totaux: ${self.total_fees:.2f})"
         )
         
-        return True
+        return True, "Executed successfully"
     
     def _update_positions(
         self,
@@ -397,6 +556,29 @@ Tu DOIS répondre avec un JSON valide contenant ta décision et ton raisonnement
                     self.winning_trades += 1
                 else:
                     self.losing_trades += 1
+                
+                # === MÉMOIRE RAG: Fermer le souvenir avec le résultat ===
+                if hasattr(self, 'db_id') and self.db_id and memory_service._initialized:
+                    try:
+                        # Chercher la mémoire d'achat correspondante pour ce symbole
+                        memories = memory_service.get_similar_trades(
+                            agent_id=self.db_id,
+                            symbol=symbol,
+                            limit=1
+                        )
+                        # Si on trouve une mémoire ouverte, on la ferme
+                        open_memories = [m for m in memories if m.get('success') is None]
+                        for mem in open_memories:
+                            lesson = f"Vendu après {'GAIN' if pnl > 0 else 'PERTE'} de ${abs(pnl):.2f}"
+                            memory_service.close_trade_memory(
+                                memory_id=mem['id'],
+                                exit_price=price,
+                                pnl=pnl,
+                                lesson_learned=lesson,
+                            )
+                            logger.info(f"🧠 {self.name}: Mémoire fermée pour {symbol} - P&L: ${pnl:.2f}")
+                    except Exception as e:
+                        logger.warning(f"Erreur fermeture mémoire: {e}")
                 
                 if pos["qty"] <= 0:
                     del self.positions[symbol]

@@ -6,7 +6,7 @@ import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest, GetAssetsRequest
+from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest, GetAssetsRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, AssetClass, AssetStatus
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest, StockSnapshotRequest
@@ -184,18 +184,22 @@ class AlpacaClient:
         symbol: str,
         qty: float,
         side: str,
-        order_type: str = "market",
-        time_in_force: str = "day"
+        order_type: str = "limit",
+        time_in_force: str = "day",
+        limit_price: float = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Soumet un ordre d'achat ou de vente.
+        
+        V2.3: Utilise des ordres LIMIT par défaut pour éviter le slippage.
         
         Args:
             symbol: Symbole de l'action
             qty: Quantité à acheter/vendre
             side: "buy" ou "sell"
-            order_type: "market" ou "limit"
+            order_type: "limit" (défaut) ou "market"
             time_in_force: "day", "gtc", "ioc", "fok"
+            limit_price: Prix limite (requis pour ordre limit, calculé si absent)
             
         Returns: Détails de l'ordre ou None si erreur
         """
@@ -214,12 +218,59 @@ class AlpacaClient:
             }
             tif = tif_map.get(time_in_force.lower(), TimeInForce.DAY)
             
-            order_request = MarketOrderRequest(
-                symbol=symbol,
-                qty=qty,
-                side=order_side,
-                time_in_force=tif
-            )
+            # === V2.3: ORDRES LIMIT PAR DÉFAUT ===
+            if order_type.lower() == "limit":
+                # Si pas de prix limite fourni, calculer un prix raisonnable
+                if limit_price is None:
+                    snapshot = self.get_latest_quote(symbol)
+                    if snapshot:
+                        if side.lower() == "buy":
+                            # Pour un achat, on met le prix limite légèrement au-dessus du ask
+                            # +0.1% pour avoir une bonne chance d'exécution
+                            limit_price = round(snapshot["ask_price"] * 1.001, 2)
+                        else:
+                            # Pour une vente, on met le prix limite légèrement en-dessous du bid
+                            # -0.1% pour avoir une bonne chance d'exécution
+                            limit_price = round(snapshot["bid_price"] * 0.999, 2)
+                    else:
+                        # Fallback: utiliser les données de marché
+                        market_data = self.get_market_data(symbol, "1Min", 1)
+                        if market_data:
+                            current_price = market_data[-1]["close"]
+                            if side.lower() == "buy":
+                                limit_price = round(current_price * 1.001, 2)
+                            else:
+                                limit_price = round(current_price * 0.999, 2)
+                        else:
+                            # Dernier recours: passer en ordre market
+                            logger.warning(f"⚠️ Impossible d'obtenir le prix pour {symbol}, passage en ordre MARKET")
+                            order_type = "market"
+                
+                if order_type.lower() == "limit" and limit_price:
+                    order_request = LimitOrderRequest(
+                        symbol=symbol,
+                        qty=qty,
+                        side=order_side,
+                        time_in_force=tif,
+                        limit_price=limit_price,
+                    )
+                    logger.info(f"📊 Ordre LIMIT: {side.upper()} {qty} {symbol} @ ${limit_price:.2f}")
+                else:
+                    order_request = MarketOrderRequest(
+                        symbol=symbol,
+                        qty=qty,
+                        side=order_side,
+                        time_in_force=tif
+                    )
+            else:
+                # Ordre MARKET explicitement demandé
+                order_request = MarketOrderRequest(
+                    symbol=symbol,
+                    qty=qty,
+                    side=order_side,
+                    time_in_force=tif
+                )
+                logger.info(f"⚠️ Ordre MARKET (slippage possible): {side.upper()} {qty} {symbol}")
             
             order = self.trading_client.submit_order(order_request)
             
@@ -232,6 +283,7 @@ class AlpacaClient:
                 "qty": float(order.qty) if order.qty else qty,
                 "side": order.side.value,
                 "type": order.type.value if order.type else order_type,
+                "limit_price": limit_price if order_type.lower() == "limit" else None,
                 "status": order.status.value if order.status else "pending",
                 "submitted_at": order.submitted_at.isoformat() if order.submitted_at else None,
                 "filled_at": order.filled_at.isoformat() if order.filled_at else None,
@@ -240,6 +292,39 @@ class AlpacaClient:
             
         except Exception as e:
             logger.error(f"❌ Erreur submit_order {side} {qty} {symbol}: {e}")
+            return None
+    
+    def get_latest_quote(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Récupère la dernière cotation (bid/ask) pour un symbole.
+        
+        Args:
+            symbol: Symbole de l'action
+            
+        Returns: Dict avec bid_price, ask_price, etc. ou None
+        """
+        if not self._initialized:
+            return None
+        
+        try:
+            from alpaca.data.requests import StockLatestQuoteRequest
+            
+            request = StockLatestQuoteRequest(symbol_or_symbols=symbol)
+            quotes = self.data_client.get_stock_latest_quote(request)
+            
+            if symbol in quotes:
+                quote = quotes[symbol]
+                return {
+                    "symbol": symbol,
+                    "bid_price": float(quote.bid_price) if quote.bid_price else 0,
+                    "bid_size": int(quote.bid_size) if quote.bid_size else 0,
+                    "ask_price": float(quote.ask_price) if quote.ask_price else 0,
+                    "ask_size": int(quote.ask_size) if quote.ask_size else 0,
+                    "timestamp": quote.timestamp.isoformat() if quote.timestamp else None,
+                }
+            return None
+        except Exception as e:
+            logger.warning(f"⚠️ Erreur get_latest_quote pour {symbol}: {e}")
             return None
     
     def get_all_assets(self, tradable_only: bool = True) -> List[Dict[str, Any]]:

@@ -22,6 +22,14 @@ from .core.news_aggregator import news_aggregator
 from .core.watch_service import watch_service
 from .core.optimized_watch import optimized_watch
 from .core.data_aggregator import data_aggregator
+from .core.memory_service import memory_service
+from .core.smart_data_service import smart_data_service
+from .core.kelly_calculator import kelly_calculator
+from .core.benchmark_service import benchmark_service
+from .core.exit_strategy_manager import exit_strategy_manager
+from .core.circuit_breaker import circuit_breaker
+from .core.signal_combiner import signal_combiner
+from .core.backtest_service import backtest_service
 from .agents.manager_agent import agent_manager
 
 # Configuration logging
@@ -96,15 +104,86 @@ async def lifespan(app: FastAPI):
     opt_watch_ok = optimized_watch.initialize()
     logger.info(f"  - Optimized Watch: {'✅' if opt_watch_ok else '❌'}")
     
+    # === NOUVEAUX SERVICES V2 ===
+    # Mémoire RAG - Les IAs apprennent de leurs erreurs
+    memory_ok = memory_service.initialize()
+    logger.info(f"  - Memory RAG Service: {'✅' if memory_ok else '❌'}")
+    
+    # Smart Data - Dark Pool, Options, Insiders
+    smart_ok = smart_data_service.initialize()
+    logger.info(f"  - Smart Data Service: {'✅' if smart_ok else '❌'}")
+    
+    # Kelly Calculator - Position sizing optimal
+    kelly_ok = kelly_calculator.initialize()
+    logger.info(f"  - Kelly Calculator: {'✅' if kelly_ok else '❌'}")
+    
+    # Benchmark Service - S&P 500 & Berkshire Hathaway
+    benchmark_ok = benchmark_service.initialize()
+    logger.info(f"  - Benchmark Service: {'✅' if benchmark_ok else '❌'}")
+    
+    # === NOUVEAUX SERVICES V2.1 - FORTIFICATION ===
+    # Exit Strategy Manager - Stop-Loss/Take-Profit automatiques
+    exit_ok = exit_strategy_manager.initialize()
+    logger.info(f"  - Exit Strategy Manager: {'✅' if exit_ok else '❌'}")
+    
+    # Circuit Breaker - Protection contre les pertes excessives
+    breaker_ok = circuit_breaker.initialize()
+    logger.info(f"  - Circuit Breaker: {'✅' if breaker_ok else '❌'}")
+    
+    # Signal Combiner - Combinaison intelligente des signaux
+    combiner_ok = signal_combiner.initialize()
+    logger.info(f"  - Signal Combiner: {'✅' if combiner_ok else '❌'}")
+    
+    # Backtest Service - Validation des stratégies
+    backtest_ok = backtest_service.initialize()
+    logger.info(f"  - Backtest Service: {'✅' if backtest_ok else '❌'}")
+    
+    # === NOUVEAUX SERVICES V2.2 - INDICATEURS TECHNIQUES & EARNINGS ===
+    from .core.technical_indicators import technical_indicators
+    from .core.earnings_calendar import earnings_calendar
+    
+    # Technical Indicators - RSI, MACD, Support/Résistance, Volume
+    tech_ok = technical_indicators.initialize()
+    logger.info(f"  - Technical Indicators: {'✅' if tech_ok else '❌'}")
+    
+    # Earnings Calendar - Éviter les achats avant earnings
+    earnings_ok = earnings_calendar.initialize()
+    logger.info(f"  - Earnings Calendar: {'✅' if earnings_ok else '❌'}")
+    
+    # === NOUVEAUX SERVICES V2.3 - TIMING, GATES, MÉMOIRE AMÉLIORÉE ===
+    from .core.market_hours_service import market_hours_service
+    from .core.technical_gates_service import technical_gates_service
+    from .core.enhanced_memory_service import enhanced_memory_service
+    
+    # === NOUVEAU SERVICE V2.4 - WINNING PATTERNS ===
+    from .core.winning_patterns_service import winning_patterns_service
+    
+    # Market Hours Service - Trading uniquement aux heures de marché (France)
+    hours_ok = market_hours_service.initialize()
+    logger.info(f"  - Market Hours Service: {'✅' if hours_ok else '❌'}")
+    
+    # Technical Gates Service - Règles dures RSI/MACD
+    gates_ok = technical_gates_service.initialize()
+    logger.info(f"  - Technical Gates Service: {'✅' if gates_ok else '❌'}")
+    
+    # Enhanced Memory Service - Mémoire RAG avec symbole/secteur
+    enhanced_mem_ok = enhanced_memory_service.initialize()
+    logger.info(f"  - Enhanced Memory Service: {'✅' if enhanced_mem_ok else '❌'}")
+    
+    # V2.4: Winning Patterns Service - Apprendre des succès
+    winning_ok = winning_patterns_service.initialize()
+    logger.info(f"  - Winning Patterns Service: {'✅' if winning_ok else '❌'}")
+    
     # Synchroniser les agents en BDD avec $10,000
     if supabase_ok and agents_ok:
         await sync_agents_to_db()
     
     # Ajouter les jobs du scheduler
+    # === V2.3: Trading continu (toutes les 5 minutes) au lieu de 30 min ===
     scheduler.add_job(
-        trading_cycle,
+        autonomous_trading_cycle,
         'interval',
-        minutes=settings.trading_interval_minutes,
+        minutes=5,  # V2.3: Cycle rapide toutes les 5 minutes
         id='trading_cycle',
         replace_existing=True,
     )
@@ -181,28 +260,63 @@ app.add_middleware(
 
 # === Fonctions Trading ===
 
-async def trading_cycle():
-    """Cycle de trading automatique."""
+async def autonomous_trading_cycle():
+    """
+    Cycle de trading AUTONOME V2.3.
+    
+    AMÉLIORATIONS MAJEURES:
+    1. Respect des horaires de marché (fuseau France)
+    2. Évite les 30 premières et 15 dernières minutes
+    3. Règles techniques DURES (RSI/MACD bloquants)
+    4. Ordres LIMIT par défaut (pas de slippage)
+    5. Mémoire RAG enrichie (symbole + secteur)
+    6. Cycle rapide (5 min) avec décision autonome
+    
+    Intègre aussi V2.1/V2.2:
+    - Circuit Breaker (protection drawdown)
+    - Exit Strategy (vérification Stop-Loss/Take-Profit)
+    - Signal Combiner (validation des trades)
+    - Technical Indicators (RSI, MACD, S/R, Volume)
+    - Earnings Calendar (éviter avant earnings)
+    """
     if not trading_state["active"]:
         return
     
-    logger.info("🔄 Début du cycle de trading...")
     trading_state["last_cycle"] = datetime.now().isoformat()
     
     try:
-        if not alpaca_client.is_market_open():
-            logger.info("📴 Marché fermé, cycle ignoré")
+        # === CHECK 0: IMPORTATION DES NOUVEAUX SERVICES V2.3 ===
+        from .core.market_hours_service import market_hours_service
+        from .core.technical_gates_service import technical_gates_service
+        from .core.enhanced_memory_service import enhanced_memory_service
+        
+        # === CHECK 1: HORAIRES DE MARCHÉ (FRANCE) ===
+        market_hours_info = market_hours_service.get_market_hours_info()
+        
+        if not market_hours_info.can_trade:
+            # Log seulement si c'est la première fois ou statut différent
+            logger.info(f"⏰ {market_hours_info.reason}")
             await broadcast_update({
-                "type": "market_closed",
+                "type": "market_hours_blocked",
                 "timestamp": datetime.now().isoformat(),
+                "reason": market_hours_info.reason,
+                "status": market_hours_info.status.value,
+                "next_open": market_hours_info.next_open_paris,
             })
             return
         
+        logger.info(f"🔄 Cycle de trading V2.3 - {market_hours_info.trading_window.value}")
+        
+        # === CHECK 2: EXIT STRATEGY - Vérifier les positions existantes ===
+        await check_exit_conditions_for_all_agents()
+        
+        # Récupérer les données de marché
         market_data = {
             "account": alpaca_client.get_account(),
             "positions": alpaca_client.get_positions(),
             "movers": alpaca_client.get_movers(limit=50),
             "market_hours": alpaca_client.get_market_hours(),
+            "market_hours_v23": market_hours_info.to_dict(),  # V2.3
         }
         
         # 📰 Récupérer les actualités en temps réel
@@ -213,16 +327,43 @@ async def trading_cycle():
             logger.warning(f"⚠️ Erreur récupération news: {e}")
             news_text = None
         
+        # === CHECK 3: CIRCUIT BREAKER pour chaque agent ===
+        agents_allowed = {}
+        for agent_name, agent in agent_manager.get_all_agents().items():
+            if hasattr(agent, 'db_id') and agent.db_id:
+                can_trade, reason = circuit_breaker.can_trade(
+                    agent.db_id, agent.current_capital
+                )
+                agents_allowed[agent_name] = {
+                    "can_trade": can_trade,
+                    "reason": reason,
+                }
+                if not can_trade:
+                    logger.warning(f"🚫 {agent_name}: {reason}")
+            else:
+                agents_allowed[agent_name] = {"can_trade": True, "reason": "OK"}
+        
+        # Exécuter le cycle de trading
         results = await agent_manager.run_trading_cycle(
             market_data=market_data,
             news=news_text,
             execute_trades=True,
+            agents_allowed=agents_allowed,  # NOUVEAU: Passer les permissions
         )
         
+        # Sauvegarder les trades et mettre à jour le circuit breaker
         for agent_name, result in results.items():
             if result.get("decision") and result["decision"].get("decision") != "HOLD":
                 await save_trade_to_db(agent_name, result)
                 trading_state["total_trades"] += 1
+                
+                # === NOUVEAU: Mettre à jour le circuit breaker avec le résultat ===
+                agent = agent_manager.get_agent(agent_name)
+                if agent and hasattr(agent, 'db_id') and result.get("executed"):
+                    pnl = result.get("pnl", 0)  # P&L du trade si disponible
+                    circuit_breaker.record_trade_result(
+                        agent.db_id, pnl, agent.current_capital
+                    )
         
         await broadcast_update({
             "type": "trading_cycle",
@@ -239,6 +380,104 @@ async def trading_cycle():
             "message": str(e),
             "timestamp": datetime.now().isoformat(),
         })
+
+
+async def check_exit_conditions_for_all_agents():
+    """
+    Vérifie les conditions de sortie pour toutes les positions de tous les agents.
+    Exécute automatiquement les Stop-Loss et Take-Profit.
+    """
+    logger.info("🎯 Vérification des conditions de sortie...")
+    
+    # Récupérer les données Smart Money pour les signaux de sortie
+    smart_data = None
+    try:
+        if smart_data_service._initialized:
+            vix_data = await smart_data_service.get_vix_data()
+            fng_data = await smart_data_service.get_fear_greed_index()
+            
+            # Déterminer le signal global
+            vix = vix_data.get("vix", 20)
+            fng = fng_data.get("fear_greed_index", 50)
+            
+            if vix > 30 and fng < 30:
+                smart_signal = "STRONG_BEARISH"
+            elif vix > 25 or fng < 40:
+                smart_signal = "BEARISH"
+            elif vix < 15 and fng > 60:
+                smart_signal = "BULLISH"
+            else:
+                smart_signal = "NEUTRAL"
+            
+            smart_data = {"signal": smart_signal}
+    except Exception as e:
+        logger.warning(f"⚠️ Erreur récupération Smart Data pour exits: {e}")
+    
+    for agent_name, agent in agent_manager.get_all_agents().items():
+        if not agent.positions or not hasattr(agent, 'db_id'):
+            continue
+        
+        for symbol, position in list(agent.positions.items()):
+            try:
+                # Récupérer le prix actuel
+                market_data = alpaca_client.get_market_data(symbol, "1Day", 1)
+                if not market_data:
+                    continue
+                
+                current_price = market_data[-1]["close"]
+                
+                # Vérifier les conditions de sortie
+                exit_signal = exit_strategy_manager.check_exit_conditions(
+                    agent_id=agent.db_id,
+                    symbol=symbol,
+                    current_price=current_price,
+                    smart_money_signal=smart_data.get("signal", "NEUTRAL") if smart_data else "NEUTRAL",
+                )
+                
+                if exit_signal.should_exit:
+                    logger.warning(f"🚨 EXIT SIGNAL pour {agent_name}/{symbol}: {exit_signal.message}")
+                    
+                    # Exécuter la sortie automatiquement
+                    quantity = position.get("qty", 0)
+                    if quantity > 0:
+                        exit_decision = {
+                            "decision": "SELL",
+                            "symbol": symbol,
+                            "quantity": quantity,
+                            "reasoning": f"AUTO EXIT: {exit_signal.reason.value} - {exit_signal.message}",
+                            "confidence": 100,  # Sortie automatique = 100% sûr
+                            "exit_reason": exit_signal.reason.value,
+                        }
+                        
+                        success, msg = await agent.execute_trade(exit_decision)
+                        
+                        if success:
+                            logger.info(f"✅ {agent_name}: Sortie auto {symbol} - {exit_signal.reason.value}")
+                            
+                            # Supprimer les niveaux de sortie
+                            exit_strategy_manager.remove_position(agent.db_id, symbol)
+                            
+                            # Mettre à jour le circuit breaker
+                            pnl_pct = exit_signal.current_pnl_pct
+                            pnl_amount = position.get("qty", 0) * position.get("avg_price", 0) * pnl_pct
+                            circuit_breaker.record_trade_result(
+                                agent.db_id, pnl_amount, agent.current_capital
+                            )
+                            
+                            # Broadcast
+                            await broadcast_update({
+                                "type": "auto_exit",
+                                "agent": agent_name,
+                                "symbol": symbol,
+                                "reason": exit_signal.reason.value,
+                                "pnl_pct": exit_signal.current_pnl_pct * 100,
+                                "timestamp": datetime.now().isoformat(),
+                            })
+                        else:
+                            logger.error(f"❌ {agent_name}: Échec sortie auto {symbol} - {msg}")
+                
+            except Exception as e:
+                logger.error(f"Erreur vérification exit {agent_name}/{symbol}: {e}")
 
 
 async def save_trade_to_db(agent_name: str, result: Dict[str, Any]):
@@ -590,6 +829,177 @@ async def get_performance(hours: int = 1):
         },
         "timestamp": datetime.now().isoformat(),
     }
+
+
+@app.get("/api/benchmarks")
+async def get_benchmarks(period: str = "1h"):
+    """
+    Récupère les données de benchmark pour comparaison.
+    
+    Args:
+        period: 1h, 24h, 7d, 30d, 3m, 6m, 1y, 5y
+        
+    Returns:
+        S&P 500 et Berkshire Hathaway performance data
+    """
+    try:
+        benchmarks = await benchmark_service.get_all_benchmarks(period=period)
+        return {
+            "success": True,
+            "period": period,
+            "benchmarks": benchmarks,
+            "timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Erreur get_benchmarks: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "benchmarks": {},
+        }
+
+
+@app.get("/api/performance/with-benchmarks")
+async def get_performance_with_benchmarks(period: str = "1h"):
+    """
+    Récupère les performances des agents ET les benchmarks.
+    Format unifié pour le graphique frontend.
+    
+    Args:
+        period: 1h, 24h, 7d, 30d, 3m, 6m, 1y, 5y
+    """
+    try:
+        # Convertir période en heures pour les agents
+        period_to_hours = {
+            "1h": 1,
+            "24h": 24,
+            "7d": 168,
+            "30d": 720,
+            "3m": 2160,
+            "6m": 4320,
+            "1y": 8760,
+            "5y": 43800,
+        }
+        hours = period_to_hours.get(period, 1)
+        
+        # Récupérer en parallèle
+        import asyncio
+        
+        # Données des agents
+        agents_data = {}
+        if supabase_client._initialized:
+            agents_data = supabase_client.get_snapshots_for_chart(hours=hours)
+        else:
+            agents_data = {
+                agent.name: [{
+                    "time": datetime.now().isoformat(),
+                    "capital": agent.current_capital,
+                    "performance": agent.get_performance(),
+                }]
+                for name, agent in agent_manager.get_all_agents().items()
+            }
+        
+        # Données des benchmarks
+        benchmarks = await benchmark_service.get_all_benchmarks(period=period)
+        benchmark_data = benchmark_service.format_benchmarks_for_chart(benchmarks, agents_data)
+        
+        # Fusionner
+        all_data = {**agents_data, **benchmark_data}
+        
+        return {
+            "success": True,
+            "period": period,
+            "hours": hours,
+            "data": all_data,
+            "benchmarks_info": {
+                "sp500": {
+                    "name": "S&P 500",
+                    "performance": benchmarks.get("sp500", {}).get("total_performance_pct", 0),
+                    "current_price": benchmarks.get("sp500", {}).get("current_price", 0),
+                },
+                "berkshire": {
+                    "name": "Berkshire (Buffett)",
+                    "performance": benchmarks.get("berkshire", {}).get("total_performance_pct", 0),
+                    "current_price": benchmarks.get("berkshire", {}).get("current_price", 0),
+                },
+            },
+            "timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Erreur get_performance_with_benchmarks: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "data": {},
+        }
+
+
+# === Routes Winning Patterns V2.4 ===
+
+@app.get("/api/patterns/winning")
+async def get_winning_patterns():
+    """
+    V2.4: Récupère les patterns gagnants identifiés.
+    Permet aux IAs d'apprendre des succès passés.
+    """
+    try:
+        from .core.winning_patterns_service import winning_patterns_service
+        
+        if not winning_patterns_service._initialized:
+            return {"success": False, "error": "Winning Patterns Service non initialisé"}
+        
+        return {
+            "success": True,
+            "best_hours": winning_patterns_service.get_best_trading_hours(),
+            "best_sectors": winning_patterns_service.get_best_sectors(),
+            "best_rsi_ranges": winning_patterns_service.get_winning_rsi_ranges(),
+            "top_setups": winning_patterns_service.get_best_setups(10),
+            "context": winning_patterns_service.get_winning_patterns_context(),
+            "timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Erreur get_winning_patterns: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/patterns/recommendation/{symbol}")
+async def get_pattern_recommendation(
+    symbol: str,
+    rsi: float = None,
+    volume_ratio: float = None,
+):
+    """
+    V2.4: Donne une recommandation basée sur les patterns gagnants pour un symbole.
+    
+    Args:
+        symbol: Symbole de l'action
+        rsi: RSI actuel (optionnel)
+        volume_ratio: Ratio de volume actuel (optionnel)
+    """
+    try:
+        from .core.winning_patterns_service import winning_patterns_service
+        
+        if not winning_patterns_service._initialized:
+            return {"success": False, "error": "Winning Patterns Service non initialisé"}
+        
+        current_hour = datetime.now().hour
+        
+        recommendation = winning_patterns_service.get_pattern_recommendation(
+            symbol=symbol.upper(),
+            current_rsi=rsi,
+            current_hour=current_hour,
+            volume_ratio=volume_ratio,
+        )
+        
+        return {
+            "success": True,
+            "symbol": symbol.upper(),
+            "recommendation": recommendation,
+            "timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Erreur get_pattern_recommendation: {e}")
+        return {"success": False, "error": str(e)}
 
 
 # === Routes Test ===

@@ -7,7 +7,7 @@ python-multipart==0.0.9
 alpaca-py==0.21.1
 
 # LLM & AI
-httpx>=0.24.0,<0.26
+httpx>=0.24.0
 openai>=1.10.0
 
 # Configuration
@@ -24,6 +24,10 @@ numpy==1.26.4
 # Scheduling & Async
 apscheduler==3.10.4
 aiohttp==3.9.3
+
+# Web Scraping (for Smart Data Service)
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
 
 # Testing
 pytest>=7.0.0,<8

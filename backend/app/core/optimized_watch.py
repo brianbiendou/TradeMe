@@ -303,7 +303,9 @@ class OptimizedWatchService:
             except Exception as e:
                 logger.warning(f"Erreur parsing veille précédente: {e}")
         
+        current_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         prompt = f"""Tu es {agent_name}. Analyse RAPIDE du marché.
+DATE: {current_time_str}
 
 {market_summary}
 
