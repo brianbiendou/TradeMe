@@ -11,8 +11,10 @@ from alpaca.trading.enums import OrderSide, TimeInForce, AssetClass, AssetStatus
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest, StockSnapshotRequest
 from alpaca.data.timeframe import TimeFrame
+from alpaca.data.enums import DataFeed  # V2.5: Pour le feed IEX gratuit
 
 from .config import settings
+from .symbol_whitelist import filter_symbols, ALLOWED_SYMBOLS  # V2.5: Filtrage symboles
 
 logger = logging.getLogger(__name__)
 
@@ -155,25 +157,29 @@ class AlpacaClient:
                 timeframe=tf,
                 start=start_date,
                 end=end_date,
-                limit=limit
+                limit=limit,
+                feed=DataFeed.IEX  # V2.5: Utiliser IEX feed (gratuit) au lieu de SIP
             )
             
             bars = self.data_client.get_stock_bars(request)
             
-            if symbol not in bars:
+            # V2.5: Accéder via .data pour BarSet (fix compatibilité)
+            bars_data = bars.data if hasattr(bars, 'data') else bars
+            
+            if symbol not in bars_data:
                 return []
             
             return [
                 {
-                    "timestamp": bar.timestamp.isoformat(),
-                    "open": float(bar.open),
-                    "high": float(bar.high),
-                    "low": float(bar.low),
-                    "close": float(bar.close),
-                    "volume": int(bar.volume),
-                    "vwap": float(bar.vwap) if bar.vwap else None,
+                    "timestamp": bar.timestamp.isoformat() if hasattr(bar, 'timestamp') else bar.get('timestamp'),
+                    "open": float(bar.open if hasattr(bar, 'open') else bar.get('open', 0)),
+                    "high": float(bar.high if hasattr(bar, 'high') else bar.get('high', 0)),
+                    "low": float(bar.low if hasattr(bar, 'low') else bar.get('low', 0)),
+                    "close": float(bar.close if hasattr(bar, 'close') else bar.get('close', 0)),
+                    "volume": int(bar.volume if hasattr(bar, 'volume') else bar.get('volume', 0)),
+                    "vwap": float(bar.vwap) if (hasattr(bar, 'vwap') and bar.vwap) else bar.get('vwap'),
                 }
-                for bar in bars[symbol]
+                for bar in bars_data[symbol]
             ]
         except Exception as e:
             logger.error(f"Erreur get_market_data pour {symbol}: {e}")
@@ -369,6 +375,7 @@ class AlpacaClient:
     def get_movers(self, limit: int = 10) -> Dict[str, List[Dict[str, Any]]]:
         """
         Récupère les top movers du marché.
+        V2.5: Filtré aux symboles S&P500/Nasdaq100 uniquement.
         
         Args:
             limit: Nombre de résultats par catégorie
@@ -380,9 +387,8 @@ class AlpacaClient:
             return {"gainers": [], "losers": [], "high_volume": []}
         
         try:
-            # Récupérer une liste d'actifs populaires
-            assets = self.get_all_assets()[:400]  # Limiter pour éviter timeout
-            symbols = [a["symbol"] for a in assets]
+            # V2.5: Utiliser directement les symboles de la whitelist au lieu de get_all_assets
+            symbols = list(ALLOWED_SYMBOLS)[:400]  # Utiliser les symboles autorisés
             
             if not symbols:
                 return {"gainers": [], "losers": [], "high_volume": []}
@@ -394,7 +400,10 @@ class AlpacaClient:
             for i in range(0, len(symbols), chunk_size):
                 chunk = symbols[i:i + chunk_size]
                 try:
-                    request = StockSnapshotRequest(symbol_or_symbols=chunk)
+                    request = StockSnapshotRequest(
+                        symbol_or_symbols=chunk,
+                        feed=DataFeed.IEX  # V2.5: Utiliser IEX feed (gratuit)
+                    )
                     snapshots = self.data_client.get_stock_snapshot(request)
                     all_snapshots.update(snapshots)
                 except Exception as chunk_error:

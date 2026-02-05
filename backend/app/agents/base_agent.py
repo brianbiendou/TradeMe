@@ -30,6 +30,9 @@ from ..core.earnings_calendar import earnings_calendar
 # === V2.3: IMPORT MÉMOIRE AMÉLIORÉE ===
 from ..core.enhanced_memory_service import enhanced_memory_service
 
+# === V2.5: IMPORT WHITELIST SYMBOLES ===
+from ..core.symbol_whitelist import is_symbol_allowed, validate_and_replace_symbol
+
 logger = logging.getLogger(__name__)
 
 
@@ -401,6 +404,18 @@ Tu DOIS répondre avec un JSON valide contenant ta décision et ton raisonnement
         reasoning = decision.get("reasoning", "")
         confidence = decision.get("confidence", 0)
         
+        # === V2.5: VALIDATION SYMBOLE (S&P500/Nasdaq100 uniquement) ===
+        if symbol and action != "HOLD":
+            validated_symbol, was_replaced = validate_and_replace_symbol(symbol)
+            if not validated_symbol:
+                msg = f"❌ Symbole {symbol} non supporté (hors S&P500/Nasdaq100)"
+                logger.warning(msg)
+                return False, msg
+            if was_replaced:
+                logger.info(f"🔄 {self.name}: Symbole {symbol} → {validated_symbol}")
+                symbol = validated_symbol
+                decision["symbol"] = symbol  # Mettre à jour pour les logs
+        
         # HOLD = ne rien faire
         if action == "HOLD" or not symbol or quantity <= 0:
             logger.info(f"⏸️ {self.name} HOLD: {reasoning[:100]}...")
@@ -437,7 +452,8 @@ Tu DOIS répondre avec un JSON valide contenant ta décision et ton raisonnement
             return False, msg
         
         # Enregistrer le trade
-        price = order.get("filled_avg_price", 0) or 0
+        # V2.5: Utiliser filled_avg_price si disponible, sinon limit_price, sinon 0
+        price = order.get("filled_avg_price") or order.get("limit_price") or 0
         
         trade = TradeRecord(
             decision=action,

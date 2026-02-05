@@ -27,6 +27,9 @@ from ..core.earnings_calendar import earnings_calendar
 from ..core.technical_gates_service import technical_gates_service
 from ..core.enhanced_memory_service import enhanced_memory_service
 
+# === V2.5: WHITELIST SYMBOLES ===
+from ..core.symbol_whitelist import is_symbol_allowed, filter_symbols
+
 logger = logging.getLogger(__name__)
 
 
@@ -360,6 +363,9 @@ class AgentManager:
                         symbol = mover.get("symbol")
                         if symbol and symbol not in top_symbols:
                             top_symbols.append(symbol)
+                
+                # === V2.5: FILTRER LES SYMBOLES (S&P500/Nasdaq100 uniquement) ===
+                top_symbols = filter_symbols(top_symbols)
                 
                 # Calculer les indicateurs pour chaque symbole
                 for symbol in top_symbols[:10]:  # Limiter à 10 pour la performance

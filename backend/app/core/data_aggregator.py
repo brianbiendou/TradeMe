@@ -14,6 +14,7 @@ import json
 import re
 
 from .config import settings
+from .symbol_whitelist import is_symbol_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +185,9 @@ class DataAggregator:
                                 changes = re.findall(r'data-field="regularMarketChangePercent"[^>]*>([+-]?\d+\.?\d*)%', html)
                                 
                                 for i, symbol in enumerate(symbols[:10]):
+                                    # === V2.5: FILTRER SYMBOLES (S&P500/Nasdaq100) ===
+                                    if not is_symbol_allowed(symbol):
+                                        continue
                                     change = float(changes[i]) if i < len(changes) else 0
                                     result[category].append({
                                         "symbol": symbol,

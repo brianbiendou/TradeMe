@@ -145,6 +145,7 @@ class KellyCalculator:
     def get_agent_statistics(self, agent_id: str) -> Dict[str, float]:
         """
         Récupère les statistiques d'un agent depuis la base.
+        V2.5: Gère le cas où la table est vide ou inexistante.
         """
         if not supabase_client._initialized:
             return {
@@ -154,10 +155,11 @@ class KellyCalculator:
             }
         
         try:
-            response = supabase_client.client.table('agent_statistics').select('*').eq('agent_id', agent_id).single().execute()
+            # V2.5: Utiliser limit(1) + execute() au lieu de single() pour éviter l'erreur 406
+            response = supabase_client.client.table('agent_statistics').select('*').eq('agent_id', agent_id).limit(1).execute()
             
-            if response.data:
-                stats = response.data
+            if response and response.data and len(response.data) > 0:
+                stats = response.data[0]
                 return {
                     "win_rate": float(stats.get('win_rate', self.default_win_rate)),
                     "win_loss_ratio": float(stats.get('win_loss_ratio', self.default_win_loss_ratio)),
@@ -168,7 +170,9 @@ class KellyCalculator:
                 }
             
         except Exception as e:
-            logger.warning(f"Erreur récupération stats agent: {e}")
+            # Ne pas logger si c'est juste une table vide
+            if "406" not in str(e) and "0 rows" not in str(e):
+                logger.warning(f"Erreur récupération stats agent: {e}")
         
         return {
             "win_rate": self.default_win_rate,

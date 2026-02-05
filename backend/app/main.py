@@ -503,10 +503,12 @@ async def save_trade_to_db(agent_name: str, result: Dict[str, Any]):
     
     supabase_client.insert_trade(trade_data)
     
+    # V2.5: Mettre à jour le capital ET le trade_count
     supabase_client.update_agent_capital(
         agent.db_id,
         agent.current_capital,
-        agent.total_fees,
+        total_fees=agent.total_fees,
+        trade_count=agent.trade_count,
     )
 
 
@@ -655,7 +657,8 @@ async def toggle_trading(toggle: TradingToggle):
         
         logger.info("🟢 TRADING ACTIVÉ")
         
-        asyncio.create_task(trading_cycle())
+        # Lancer un cycle immédiatement (le scheduler continuera ensuite)
+        asyncio.create_task(autonomous_trading_cycle())
         
         await broadcast_update({
             "type": "trading_enabled",
